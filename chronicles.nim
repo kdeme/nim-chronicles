@@ -152,6 +152,10 @@ else:
   template setTopicState*(name, state) = runtimeFilteringDisabledError
   template setLogLevel*(name, state) = runtimeFilteringDisabledError
 
+template getFileLineNumber(): string =
+  const posInfo = instantiationInfo(0, false)
+  posInfo.filename & ":" & $posInfo.line
+
 macro logIMPL(Stream: typed,
               RecordType: typedesc,
               eventName: static[string],
@@ -180,6 +184,7 @@ macro logIMPL(Stream: typed,
   var requiredTopicsCount = requiredTopics.len
   var topicsNode = newLit("")
   var activeTopics: seq[string] = @[]
+  var lineNumbersNode = newLit(lineNumbersEnabled)
 
   if finalBindings.hasKey("topics"):
     topicsNode = finalBindings["topics"]
@@ -200,6 +205,14 @@ macro logIMPL(Stream: typed,
 
   if not enabledTopicsMatch or requiredTopicsCount > 0:
     return
+
+  if finalBindings.hasKey("chroniclesLineNumbers"):
+    lineNumbersNode = finalBindings["chroniclesLineNumbers"]
+    finalBindings.del("chroniclesLineNumbers")
+
+    # Need both kinds, one for scope, one for log statement
+    if lineNumbersNode.kind notin {nnkSym, nnkIdent}:
+      error "Please specify the 'chroniclesLineNumbers' as true or false", lineNumbersNode
 
   var code = newStmtList()
   when runtimeFilteringEnabled:
@@ -232,6 +245,8 @@ macro logIMPL(Stream: typed,
       initLogRecord(`recordRef`, LogLevel(`severity`),
                     `topicsNode`, `eventName`)
       setFirstProperty(`recordRef`, "thread", `threadId`)
+      when `lineNumbersNode`:
+        setProperty(`recordRef`, "file", getFileLineNumber())
 
     for k, v in finalBindings:
       code.add newCall("setProperty", recordRef, newLit(k), v)
